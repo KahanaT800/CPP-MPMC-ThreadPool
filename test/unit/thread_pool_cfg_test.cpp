@@ -4,6 +4,7 @@
 #include <nlohmann/json.hpp>
 #include <fstream>
 #include <cstdio>
+#include <filesystem>
 
 TEST(ConfigLoader, FromString) {
     const std::string str = R"({
@@ -57,9 +58,14 @@ TEST(ConfigLoader, FromJson) {
 namespace fs = std::filesystem;
 
 TEST(ConfigLoader, FromFile) {
+    fs::path path;
+#ifdef TEST_SOURCE_DIR
+    path = fs::path(TEST_SOURCE_DIR) / "test_config" / "sample_config.json";
+#else
     fs::path here = fs::path(__FILE__).parent_path();
     fs::path repo_test_dir = here.parent_path();
-    fs::path path = repo_test_dir / "test_config" / "sample_config.json";
+    path = repo_test_dir / "test_config" / "sample_config.json";
+#endif
 
     auto loadout = thread_pool::ThreadPoolConfigLoader::FromFile(path.string());
     ASSERT_TRUE(loadout.has_value());

@@ -9,6 +9,14 @@
 #include <iomanip>
 #include <fstream>
 
+// MSVC compatibility: define memory barrier macro
+#if defined(_MSC_VER)
+    #include <intrin.h>
+    #define COMPILER_BARRIER() _ReadWriteBarrier()
+#else
+    #define COMPILER_BARRIER() asm volatile("" ::: "memory")
+#endif
+
 using namespace std::chrono_literals;
 
 namespace bench_tp {
@@ -162,7 +170,7 @@ BenchmarkResult ThreadPoolBenchmark::RunDurationBenchmark() {
                 // Observable side effect: write to a global atomic
                 global_sink.fetch_add(local_sink, std::memory_order_relaxed);
                 // Memory barrier to prevent reordering
-                asm volatile("" ::: "memory");
+                COMPILER_BARRIER();
             }
             // Simulate IO wait
             if (s > 0) {
@@ -212,7 +220,7 @@ BenchmarkResult ThreadPoolBenchmark::RunDurationBenchmark() {
                 // Observable side effect: write to a global atomic
                 global_sink.fetch_add(local_sink, std::memory_order_relaxed);
                 // Memory barrier to prevent reordering
-                asm volatile("" ::: "memory");
+                COMPILER_BARRIER();
             }
             if (s > 0) {
                 std::this_thread::sleep_for(std::chrono::microseconds(s));
@@ -344,7 +352,7 @@ BenchmarkResult ThreadPoolBenchmark::RunTaskCountBenchmark() {
                         // Observable side effect: write to a global atomic
                         global_sink.fetch_add(local_sink, std::memory_order_relaxed);
                         // Memory barrier to prevent reordering
-                        asm volatile("" ::: "memory");
+                        COMPILER_BARRIER();
                     }
                     if (s > 0) {
                         std::this_thread::sleep_for(std::chrono::microseconds(s));

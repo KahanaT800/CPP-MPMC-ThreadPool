@@ -1,0 +1,107 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["**"]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    name: Build and Test (${{ matrix.compiler }}, ${{ matrix.build_type }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        compiler: [gcc, clang]
+        build_type: [Debug, Release]
+    env:
+      CCACHE_BASEDIR: ${{ github.workspace }}
+      CCACHE_DIR: $HOME/.ccache
+      CCACHE_COMPRESS: "true"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build ccache libgtest-dev nlohmann-json3-dev libspdlog-dev
+
+      - name: Prepare ccache dir
+        run: mkdir -p $HOME/.ccache
+
+      - name: Cache ccache
+        uses: actions/cache@v4
+        with:
+          path: $HOME/.ccache
+          key: ${{ runner.os }}-ccache-${{ matrix.compiler }}-${{ matrix.build_type }}-${{ hashFiles('**/CMakeLists.txt', '**/*.hpp', '**/*.h', '**/*.cpp', '**/*.cc', '**/*.cxx') }}
+          restore-keys: |
+            ${{ runner.os }}-ccache-${{ matrix.compiler }}-${{ matrix.build_type }}-
+
+      - name: Select compiler
+        run: |
+          if [ "${{ matrix.compiler }}" = "clang" ]; then
+            echo "CC=clang" >> $GITHUB_ENV
+            echo "CXX=clang++" >> $GITHUB_ENV
+          else
+            echo "CC=gcc" >> $GITHUB_ENV
+            echo "CXX=g++" >> $GITHUB_ENV
+          fi
+
+      - name: Show toolchain versions
+        run: |
+          ${{ env.CC }} --version
+          ${{ env.CXX }} --version
+          cmake --version
+          ninja --version
+
+      - name: Configure (CMake)
+        run: |
+          cmake -S . -B build -G Ninja \
+                -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} \
+                -DCMAKE_C_COMPILER=${{ env.CC }} \
+                -DCMAKE_CXX_COMPILER=${{ env.CXX }} \
+                -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+
+      - name: Build
+        run: cmake --build build --config ${{ matrix.build_type }} --parallel
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure --no-tests=error
+
+  asan-ubsan:
+    name: Sanitizers (clang, Debug)
+    runs-on: ubuntu-latest
+    env:
+      ASAN_OPTIONS: detect_leaks=1
+      UBSAN_OPTIONS: print_stacktrace=1
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build clang libgtest-dev nlohmann-json3-dev libspdlog-dev
+
+      - name: Configure with sanitizers
+        run: |
+          cmake -S . -B build-sanitizers -G Ninja \
+                -DCMAKE_BUILD_TYPE=Debug \
+                -DCMAKE_C_COMPILER=clang \
+                -DCMAKE_CXX_COMPILER=clang++ \
+                -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer" \
+                -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined" \
+                -DCMAKE_SHARED_LINKER_FLAGS="-fsanitize=address,undefined"
+
+      - name: Build
+        run: cmake --build build-sanitizers --config Debug --parallel
+
+      - name: Test (ASan/UBSan)
+        run: ctest --test-dir build-sanitizers --output-on-failure --no-tests=error

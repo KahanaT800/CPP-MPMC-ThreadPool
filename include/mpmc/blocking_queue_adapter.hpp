@@ -40,8 +40,11 @@ public:
         if (Closed()) {
             return false;
         }
-        // Lock-free fast path: try enqueue directly
-        if (queue_.TryPush(std::move(item))) {
+        // Lock-free fast path: use TryPushWith to only move item on success
+        auto try_push_item = [&](void* slot) {
+            ::new (slot) T(std::move(item));
+        };
+        if (queue_.TryPushWith(try_push_item)) {
             const auto prev = pending_count_.fetch_add(1, std::memory_order_release);
             // Notify only when queue transitions from empty to non-empty
             if (prev == 0) {

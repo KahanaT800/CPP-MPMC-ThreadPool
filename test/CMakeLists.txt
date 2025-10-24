@@ -78,6 +78,11 @@ target_link_libraries(thread_pool_cfg_test
         threadpool
 )
 
+# Provide the source dir to the test so it can locate test_config reliably
+target_compile_definitions(thread_pool_cfg_test
+    PRIVATE TEST_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
+)
+
 add_test(NAME threadpool.thread_pool_cfg_test COMMAND thread_pool_cfg_test)
 
 # Thread pool logger test

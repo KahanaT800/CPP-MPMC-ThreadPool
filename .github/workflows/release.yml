@@ -1,0 +1,186 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-linux:
+    name: Build Linux (${{ matrix.compiler }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        compiler: [gcc, clang]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build libgtest-dev nlohmann-json3-dev libspdlog-dev
+
+      - name: Select compiler
+        run: |
+          if [ "${{ matrix.compiler }}" = "clang" ]; then
+            echo "CC=clang" >> $GITHUB_ENV
+            echo "CXX=clang++" >> $GITHUB_ENV
+          else
+            echo "CC=gcc" >> $GITHUB_ENV
+            echo "CXX=g++" >> $GITHUB_ENV
+          fi
+
+      - name: Build Release
+        run: |
+          cmake -S . -B build -G Ninja \
+                -DCMAKE_BUILD_TYPE=Release \
+                -DCMAKE_C_COMPILER=${{ env.CC }} \
+                -DCMAKE_CXX_COMPILER=${{ env.CXX }}
+          cmake --build build --config Release --parallel
+
+      - name: Run tests
+        run: ctest --test-dir build --output-on-failure --no-tests=error
+
+      - name: Package artifacts
+        run: |
+          mkdir -p release/lib release/include release/config
+          cp build/libthreadpool.a release/lib/
+          cp -r include/* release/include/
+          cp -r config/* release/config/
+          cp README.md LICENSE release/ || true
+          cd release
+          tar -czf ../threadpool-linux-${{ matrix.compiler }}-x86_64.tar.gz *
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: threadpool-linux-${{ matrix.compiler }}-x86_64
+          path: threadpool-linux-${{ matrix.compiler }}-x86_64.tar.gz
+
+  build-macos:
+    name: Build macOS
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          brew install nlohmann-json spdlog googletest
+
+      - name: Build Release
+        run: |
+          cmake -S . -B build -G Ninja \
+                -DCMAKE_BUILD_TYPE=Release
+          cmake --build build --config Release --parallel
+
+      - name: Run tests
+        run: ctest --test-dir build --output-on-failure --no-tests=error
+
+      - name: Package artifacts
+        run: |
+          mkdir -p release/lib release/include release/config
+          cp build/libthreadpool.a release/lib/
+          cp -r include/* release/include/
+          cp -r config/* release/config/
+          cp README.md LICENSE release/ || true
+          cd release
+          tar -czf ../threadpool-macos-arm64.tar.gz *
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: threadpool-macos-arm64
+          path: threadpool-macos-arm64.tar.gz
+
+  build-windows:
+    name: Build Windows
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup vcpkg
+        run: |
+          git clone https://github.com/microsoft/vcpkg.git
+          .\vcpkg\bootstrap-vcpkg.bat
+          .\vcpkg\vcpkg integrate install
+
+      - name: Install dependencies
+        run: |
+          .\vcpkg\vcpkg install nlohmann-json spdlog gtest --triplet x64-windows
+
+      - name: Build Release
+        run: |
+          cmake -S . -B build -G "Visual Studio 17 2022" -A x64 `
+                -DCMAKE_BUILD_TYPE=Release `
+                -DCMAKE_TOOLCHAIN_FILE="$PWD/vcpkg/scripts/buildsystems/vcpkg.cmake"
+          cmake --build build --config Release --parallel
+
+      - name: Run tests
+        run: ctest --test-dir build -C Release --output-on-failure --no-tests=error
+
+      - name: Package artifacts
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path release/lib, release/include, release/config
+          Copy-Item build/Release/threadpool.lib release/lib/
+          Copy-Item -Recurse include/* release/include/
+          Copy-Item -Recurse config/* release/config/
+          Copy-Item README.md, LICENSE release/ -ErrorAction SilentlyContinue
+          Compress-Archive -Path release/* -DestinationPath threadpool-windows-x64.zip
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: threadpool-windows-x64
+          path: threadpool-windows-x64.zip
+
+  create-release:
+    name: Create GitHub Release
+    needs: [build-linux, build-macos, build-windows]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Prepare release files
+        run: |
+          mkdir -p release-assets
+          find artifacts -type f \( -name "*.tar.gz" -o -name "*.zip" \) -exec cp {} release-assets/ \;
+          ls -lh release-assets/
+
+      - name: Generate changelog
+        id: changelog
+        run: |
+          if [ -n "${{ github.event.before }}" ] && git rev-parse "${{ github.event.before }}" >/dev/null 2>&1; then
+            echo "## Changes" > CHANGELOG.md
+            git log --pretty=format:"- %s (%h)" ${{ github.event.before }}..HEAD >> CHANGELOG.md
+          else
+            echo "## Release ${{ github.ref_name }}" > CHANGELOG.md
+            echo "Initial release or tag-only release." >> CHANGELOG.md
+          fi
+          cat CHANGELOG.md
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release-assets/*
+          body_path: CHANGELOG.md
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

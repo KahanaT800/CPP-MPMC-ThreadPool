@@ -271,4 +271,9 @@ TEST(QueueContract, NoConsumeOnFailure) {
     EXPECT_FALSE(pushed);
     // After failure, p should remain non-null (not consumed)
     EXPECT_TRUE(p);
+    
+    // Clean up: pop the items to avoid memory leak detected by ASan
+    std::unique_ptr<int> out;
+    EXPECT_TRUE(q.TryPop(out));
+    EXPECT_TRUE(q.TryPop(out));
 }

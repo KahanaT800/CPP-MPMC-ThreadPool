@@ -9,6 +9,9 @@ Thumbs.db
 
 # 构建目录
 build/
+build-ci/
+build-sanitizers/
+build-*/
 cmake-build-*/
 out/
 Debug/
@@ -21,6 +24,10 @@ CMakeCache.txt
 CMakeFiles/
 cmake_install.cmake
 Makefile
+CTestTestfile.cmake
+CTestCostData.txt
+.ninja_deps
+.ninja_log
 *.cmake
 !CMakeLists.txt
 
@@ -59,6 +66,7 @@ coverage/
 *.gcov
 *.gcda
 *.gcno
+Testing/
 
 # 文档生成
 docs/_build/

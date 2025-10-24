@@ -1,5 +1,7 @@
 # Thread Pool (MPMC)
 
+[![CI](https://github.com/KahanaT800/CPP-MPMC-ThreadPool/actions/workflows/ci.yml/badge.svg)](https://github.com/KahanaT800/CPP-MPMC-ThreadPool/actions/workflows/ci.yml)
+
 Fast, friendly, and ready for real workloads — a modern C++17 thread pool with a lock-free MPMC queue, smart scaling, and handy stats. Comes with unit tests, stress tests, and a configurable benchmark so you can see how it behaves on your machine.
 This repository serves as a learning-oriented implementation for exploring design trade-offs, benchmarking, and sharing ideas.
 

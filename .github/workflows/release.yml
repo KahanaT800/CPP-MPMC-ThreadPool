@@ -165,12 +165,20 @@ jobs:
       - name: Generate changelog
         id: changelog
         run: |
-          if [ -n "${{ github.event.before }}" ] && git rev-parse "${{ github.event.before }}" >/dev/null 2>&1; then
-            echo "## Changes" > CHANGELOG.md
-            git log --pretty=format:"- %s (%h)" ${{ github.event.before }}..HEAD >> CHANGELOG.md
+          # Robust changelog generation for tag pushes and manual runs
+          if [[ "${{ github.event_name }}" == "push" && "${{ github.ref }}" == refs/tags/* ]]; then
+            # Find previous tag (if any); for first tag, there may be none
+            prev_tag=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+            if [ -n "$prev_tag" ]; then
+              echo "## Changes since $prev_tag" > CHANGELOG.md
+              git log --pretty=format:"- %s (%h)" "$prev_tag"..HEAD >> CHANGELOG.md
+            else
+              echo "## Release ${{ github.ref_name }}" > CHANGELOG.md
+              echo "Initial release." >> CHANGELOG.md
+            fi
           else
             echo "## Release ${{ github.ref_name }}" > CHANGELOG.md
-            echo "Initial release or tag-only release." >> CHANGELOG.md
+            echo "Manual run or non-tag push." >> CHANGELOG.md
           fi
           cat CHANGELOG.md
 

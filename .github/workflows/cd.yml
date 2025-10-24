@@ -77,7 +77,14 @@ jobs:
         id: get_latest_tag
         run: |
           # 获取最新的版本标签
-          latest_tag=$(git describe --tags --match "v*.*.*" --abbrev=0 2>/dev/null || echo "v1.1.0")
+          latest_tag=$(git describe --tags --match "v*.*.*" --abbrev=0 2>/dev/null || echo "")
+          
+          if [ -z "$latest_tag" ]; then
+            # 如果没有找到任何版本标签，从 v0.0.0 开始
+            latest_tag="v0.0.0"
+            echo "No existing version tags found, starting from v0.0.0"
+          fi
+          
           echo "latest_tag=$latest_tag" >> $GITHUB_OUTPUT
           echo "Current latest tag: $latest_tag"
 
@@ -128,6 +135,13 @@ jobs:
         run: |
           new_tag="${{ steps.calc_version.outputs.new_tag }}"
           
+          # 检查标签是否已存在
+          if git tag -l | grep -q "^${new_tag}$"; then
+            echo "❌ Tag $new_tag already exists!"
+            echo "Please choose a different version type or manually delete the existing tag."
+            exit 1
+          fi
+          
           # 配置 git
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -141,6 +155,7 @@ jobs:
           git push origin "$new_tag"
           
           echo "new_tag=$new_tag" >> $GITHUB_OUTPUT
+          echo "✅ Created and pushed tag: $new_tag"
           echo "✅ Created and pushed tag: $new_tag"
 
   # 获取现有标签信息（推送标签触发时）
@@ -360,7 +375,7 @@ jobs:
         run: |
           echo "### 🎉 Release Created Successfully!" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Tag:** ${{ steps.release_info.outputs.tag_name }}" >> $GITHUB_OUTPUT
+          echo "**Tag:** ${{ steps.release_info.outputs.tag_name }}" >> $GITHUB_STEP_SUMMARY
           echo "**Type:** ${{ steps.release_info.outputs.is_manual == 'true' && 'Manual' || 'Tag-triggered' }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "[🔗 View Release](https://github.com/${{ github.repository }}/releases/tag/${{ steps.release_info.outputs.tag_name }})" >> $GITHUB_STEP_SUMMARY

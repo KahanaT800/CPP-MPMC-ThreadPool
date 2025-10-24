@@ -96,19 +96,19 @@ You can also pull a prebuilt runtime image from GitHub Container Registry once a
 
 ```bash
 # pull a specific version (recommended)
-docker pull ghcr.io/kahanat800/cpp-mpmc-threadpool:v1.1.0
+docker pull ghcr.io/kahanat800/cpp-mpmc-threadpool:v1.0.0
 
 # or always track latest
 docker pull ghcr.io/kahanat800/cpp-mpmc-threadpool:latest
 
 # run benchmark from the prebuilt runtime image
-docker run --rm -it ghcr.io/kahanat800/cpp-mpmc-threadpool:v1.1.0 \
+docker run --rm -it ghcr.io/kahanat800/cpp-mpmc-threadpool:v1.0.0 \
   /app/build/bench/thread_pool_benchmark 2 2 time
 
 # Expected output: ~2.3M tasks/s throughput, 82ns avg task time
 ```
 
-Image tags follow the repository tags (e.g., `v1.1.0`) and also publish `:latest`.
+Image tags follow the repository tags (e.g., `v1.0.0`) and also publish `:latest`.
 
 ## Using the pool 💻
 

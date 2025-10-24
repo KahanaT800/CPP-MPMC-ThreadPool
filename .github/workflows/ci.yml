@@ -1,0 +1,165 @@
+name: Continuous Integration
+
+on:
+  push:
+    branches: ["**"]  # 所有分支都触发
+  pull_request:
+    branches: ["**"]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # 多编译器多构建类型测试
+  build-and-test:
+    name: Build and Test (${{ matrix.compiler }}, ${{ matrix.build_type }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        compiler: [gcc, clang]
+        build_type: [Debug, Release]
+    env:
+      CCACHE_BASEDIR: ${{ github.workspace }}
+      CCACHE_DIR: $HOME/.ccache
+      CCACHE_COMPRESS: "true"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build ccache libgtest-dev nlohmann-json3-dev libspdlog-dev
+
+      - name: Prepare ccache dir
+        run: mkdir -p $HOME/.ccache
+
+      - name: Cache ccache
+        uses: actions/cache@v4
+        with:
+          path: $HOME/.ccache
+          key: ${{ runner.os }}-ccache-${{ matrix.compiler }}-${{ matrix.build_type }}-${{ hashFiles('**/CMakeLists.txt', '**/*.hpp', '**/*.h', '**/*.cpp', '**/*.cc', '**/*.cxx') }}
+          restore-keys: |
+            ${{ runner.os }}-ccache-${{ matrix.compiler }}-${{ matrix.build_type }}-
+
+      - name: Setup compiler
+        run: |
+          if [ "${{ matrix.compiler }}" == "gcc" ]; then
+            echo "CC=gcc" >> $GITHUB_ENV
+            echo "CXX=g++" >> $GITHUB_ENV
+          elif [ "${{ matrix.compiler }}" == "clang" ]; then
+            echo "CC=clang" >> $GITHUB_ENV
+            echo "CXX=clang++" >> $GITHUB_ENV
+          fi
+
+      - name: Build
+        run: |
+          cmake -S . -B build \
+            -G Ninja \
+            -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+
+          cmake --build build --parallel
+
+      - name: Run tests
+        working-directory: build
+        run: |
+          ctest --output-on-failure --parallel
+
+      - name: Check ccache stats
+        run: ccache -s
+
+  # 代码质量检查
+  code-quality:
+    name: Code Quality Checks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build libgtest-dev nlohmann-json3-dev libspdlog-dev
+
+      - name: Build for analysis
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug
+          cmake --build build --parallel
+
+      - name: Run tests with verbose output
+        working-directory: build
+        run: |
+          ctest --verbose --output-on-failure
+
+  # 基准测试（可选，仅在特定条件下运行）
+  benchmark:
+    name: Performance Benchmark
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[benchmark]')
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build libgtest-dev nlohmann-json3-dev libspdlog-dev
+
+      - name: Build Release
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build build --parallel
+
+      - name: Run benchmark
+        working-directory: build
+        run: |
+          echo "### 🚀 Performance Benchmark Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          ./bench/thread_pool_benchmark 2 2 tasks 10000 | tee benchmark_output.txt
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          
+          # 提取关键指标
+          if grep -q "Throughput:" benchmark_output.txt; then
+            throughput=$(grep "Throughput:" benchmark_output.txt | awk '{print $2, $3}')
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**Key Metrics:**" >> $GITHUB_STEP_SUMMARY
+            echo "- Throughput: $throughput" >> $GITHUB_STEP_SUMMARY
+          fi
+
+  # 总结作业状态
+  summary:
+    name: CI Summary
+    runs-on: ubuntu-latest
+    needs: [build-and-test, code-quality]
+    if: always()
+    steps:
+      - name: Create summary
+        run: |
+          echo "### 🧪 CI Pipeline Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [ "${{ needs.build-and-test.result }}" == "success" ]; then
+            echo "✅ **Build and Test**: All matrix combinations passed" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ **Build and Test**: Some combinations failed" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          if [ "${{ needs.code-quality.result }}" == "success" ]; then
+            echo "✅ **Code Quality**: All checks passed" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ **Code Quality**: Some checks failed" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Branch**: ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Commit**: ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Event**: ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY

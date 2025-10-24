@@ -1,0 +1,88 @@
+{
+  "thread_pool": {
+    "core_threads": 8,
+    "max_threads": 16,
+    "max_queue_size": 32768,
+    "keep_alive_time_ms": 5000,
+    "queue_full_policy": "BLOCK",  
+    "enable_dynamic_threads": true,
+    "load_check_interval_ms": 100,
+    "scale_up_threshold": 0.75,
+    "scale_down_threshold": 0.25,
+    "pending_hi": 4096,
+    "pending_low": 1024,
+    "debounce_hits": 3,
+    "cooldown_ms": 500
+  },
+  "benchmark": {
+    "total_tasks": 2000000,
+    "duration_seconds": 10,
+    "warmup_seconds": 2,
+    "use_duration_mode": true,
+    "enable_logging": true,
+    "enable_console_output": true,
+    "enable_real_time_monitoring": true,
+    "monitoring_interval_ms": 1000
+  }
+  ,
+  "scenarios": [
+    {
+      "name": "Duration-2core-2s",
+      "thread_pool": { "core_threads": 2 },
+      "benchmark": { "use_duration_mode": true, "duration_seconds": 2, "warmup_seconds": 1 }
+    },
+    {
+      "name": "Duration-8core-5s",
+      "thread_pool": { "core_threads": 8, "max_threads": 16 },
+      "benchmark": { "use_duration_mode": true, "duration_seconds": 5, "warmup_seconds": 2 }
+    },
+    {
+      "name": "OverwritePolicy-Test",
+      "thread_pool": { "queue_full_policy": "OVERWRITE", "core_threads": 2, "max_threads": 4, "max_queue_size": 8192 },
+      "benchmark": { "use_duration_mode": true, "duration_seconds": 3, "warmup_seconds": 1 }
+    },
+    {
+      "name": "DiscardPolicy-Test",
+      "thread_pool": { "core_threads": 2, "max_threads": 2, "max_queue_size": 512, "queue_full_policy": "DISCARD" },
+      "benchmark": { "use_duration_mode": true, "duration_seconds": 3, "warmup_seconds": 1, "enable_logging": false }
+    },
+    {
+      "name": "Low-Concurrency",
+      "thread_pool": {
+        "core_threads": 2,
+        "max_threads": 4,
+        "max_queue_size": 50000,
+        "queue_full_policy": "DISCARD",
+        "enable_dynamic_threads": false
+      },
+      "benchmark": { "use_duration_mode": true, "duration_seconds": 5, "warmup_seconds": 1, "enable_logging": false }
+    },
+    {
+      "name": "Medium-Concurrency",
+      "thread_pool": {
+        "core_threads": 4,
+        "max_threads": 8,
+        "max_queue_size": 100000,
+        "queue_full_policy": "DISCARD",
+        "enable_dynamic_threads": false
+      },
+      "benchmark": { "use_duration_mode": true, "duration_seconds": 5, "warmup_seconds": 1, "enable_logging": false }
+    },
+    {
+      "name": "High-Concurrency",
+      "thread_pool": {
+        "core_threads": 8,
+        "max_threads": 16,
+        "max_queue_size": 200000,
+        "queue_full_policy": "DISCARD",
+        "enable_dynamic_threads": false
+      },
+      "benchmark": { "use_duration_mode": true, "duration_seconds": 5, "warmup_seconds": 1, "enable_logging": false }
+    },
+    {
+      "name": "Multi-Submitter-TaskMode",
+      "thread_pool": { "core_threads": 4, "max_threads": 8, "max_queue_size": 4096 },
+      "benchmark": { "use_duration_mode": false, "total_tasks": 1000000, "submit_threads": 8 }
+    }
+  ]
+}

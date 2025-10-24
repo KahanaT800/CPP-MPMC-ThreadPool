@@ -1,0 +1,8 @@
+{
+  "queue_cap": 2048,
+  "core_threads": 4,
+  "max_threads": 6,
+  "pending_low": 8,
+  "pending_hi": 64,
+  "queue_policy": "Overwrite"
+}

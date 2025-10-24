@@ -1,0 +1,366 @@
+name: Release
+
+on:
+  # 只在手动触发或推送标签时运行
+  workflow_dispatch:
+    inputs:
+      version_type:
+        description: 'Version bump type'
+        required: true
+        default: 'patch'
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+      release_notes:
+        description: 'Release notes (optional)'
+        required: false
+        type: string
+  push:
+    tags:
+      - 'v*.*.*'  # 当推送版本标签时触发
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false  # 不取消发布流程
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  # 确保 CI 通过后再发布
+  check-ci:
+    name: Check CI Status
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get latest CI run
+        id: ci_status
+        run: |
+          # 获取最新的 CI 工作流运行状态
+          latest_run=$(gh run list --workflow=ci.yml --branch=main --limit=1 --json conclusion --jq '.[0].conclusion')
+          echo "ci_conclusion=$latest_run" >> $GITHUB_OUTPUT
+          
+          if [ "$latest_run" != "success" ]; then
+            echo "❌ Latest CI run did not succeed (status: $latest_run)"
+            echo "Please ensure CI passes before creating a release."
+            exit 1
+          else
+            echo "✅ Latest CI run succeeded"
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # 生成版本号（仅手动触发时）
+  create-version:
+    name: Create Version Tag
+    runs-on: ubuntu-latest
+    needs: check-ci
+    if: github.event_name == 'workflow_dispatch'
+    outputs:
+      new_tag: ${{ steps.create_tag.outputs.new_tag }}
+      changelog: ${{ steps.changelog.outputs.changelog }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get latest tag
+        id: get_latest_tag
+        run: |
+          # 获取最新的版本标签
+          latest_tag=$(git describe --tags --match "v*.*.*" --abbrev=0 2>/dev/null || echo "v1.1.0")
+          echo "latest_tag=$latest_tag" >> $GITHUB_OUTPUT
+          echo "Current latest tag: $latest_tag"
+
+      - name: Calculate new version
+        id: calc_version
+        run: |
+          latest_tag="${{ steps.get_latest_tag.outputs.latest_tag }}"
+          version_type="${{ github.event.inputs.version_type }}"
+          
+          # 解析版本号
+          version=${latest_tag#v}
+          IFS='.' read -r major minor patch <<< "$version"
+          
+          # 根据类型增加版本号
+          case $version_type in
+            "major")
+              major=$((major + 1))
+              minor=0
+              patch=0
+              ;;
+            "minor")
+              minor=$((minor + 1))
+              patch=0
+              ;;
+            "patch")
+              patch=$((patch + 1))
+              ;;
+          esac
+          
+          new_version="v${major}.${minor}.${patch}"
+          echo "new_tag=$new_version" >> $GITHUB_OUTPUT
+          echo "New version will be: $new_version"
+
+      - name: Generate changelog
+        id: changelog
+        run: |
+          latest_tag="${{ steps.get_latest_tag.outputs.latest_tag }}"
+          
+          # 生成变更日志
+          echo "changelog<<EOF" >> $GITHUB_OUTPUT
+          echo "### Changes since $latest_tag" >> $GITHUB_OUTPUT
+          echo "" >> $GITHUB_OUTPUT
+          git log ${latest_tag}..HEAD --oneline --no-merges | head -20 >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Create and push tag
+        id: create_tag
+        run: |
+          new_tag="${{ steps.calc_version.outputs.new_tag }}"
+          
+          # 配置 git
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          
+          # 创建带注释的标签
+          git tag -a "$new_tag" -m "Release $new_tag
+          
+          ${{ steps.changelog.outputs.changelog }}"
+          
+          # 推送标签
+          git push origin "$new_tag"
+          
+          echo "new_tag=$new_tag" >> $GITHUB_OUTPUT
+          echo "✅ Created and pushed tag: $new_tag"
+
+  # 获取现有标签信息（推送标签触发时）
+  get-tag-info:
+    name: Get Tag Information
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+    outputs:
+      tag_name: ${{ steps.get_tag.outputs.tag_name }}
+      changelog: ${{ steps.changelog.outputs.changelog }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get tag name
+        id: get_tag
+        run: |
+          tag_name=${GITHUB_REF#refs/tags/}
+          echo "tag_name=$tag_name" >> $GITHUB_OUTPUT
+          echo "Building for tag: $tag_name"
+
+      - name: Generate changelog
+        id: changelog
+        run: |
+          tag_name=${GITHUB_REF#refs/tags/}
+          
+          # 获取上一个标签
+          prev_tag=$(git describe --tags --match "v*.*.*" --abbrev=0 --exclude="$tag_name" 2>/dev/null || echo "")
+          
+          echo "changelog<<EOF" >> $GITHUB_OUTPUT
+          if [ -n "$prev_tag" ]; then
+            echo "### Changes since $prev_tag" >> $GITHUB_OUTPUT
+            echo "" >> $GITHUB_OUTPUT
+            git log ${prev_tag}..${tag_name} --oneline --no-merges | head -20 >> $GITHUB_OUTPUT
+          else
+            echo "### Initial Release" >> $GITHUB_OUTPUT
+            echo "" >> $GITHUB_OUTPUT
+            git log --oneline --no-merges | head -10 >> $GITHUB_OUTPUT
+          fi
+          echo "EOF" >> $GITHUB_OUTPUT
+
+  # 构建和推送 Docker 镜像
+  build-and-push-docker:
+    name: Build and Push Docker Image
+    runs-on: ubuntu-latest
+    needs: [create-version, get-tag-info]
+    if: always() && (needs.create-version.result == 'success' || needs.get-tag-info.result == 'success')
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set version info
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            version="${{ needs.create-version.outputs.new_tag }}"
+          else
+            version="${{ needs.get-tag-info.outputs.tag_name }}"
+          fi
+          echo "version=$version" >> $GITHUB_OUTPUT
+          echo "Building version: $version"
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        run: |
+          owner=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          repo=$(echo "${{ github.event.repository.name }}" | tr '[:upper:]' '[:lower:]')
+          version="${{ steps.version.outputs.version }}"
+          
+          echo "owner=$owner" >> $GITHUB_OUTPUT
+          echo "repo=$repo" >> $GITHUB_OUTPUT
+          echo "version=$version" >> $GITHUB_OUTPUT
+
+      - name: Build and push runtime image
+        run: |
+          docker buildx build \
+            --platform linux/amd64,linux/arm64 \
+            --target runtime \
+            --cache-from type=gha \
+            --cache-to type=gha,mode=max \
+            -t ghcr.io/${{ steps.meta.outputs.owner }}/${{ steps.meta.outputs.repo }}:${{ steps.meta.outputs.version }} \
+            -t ghcr.io/${{ steps.meta.outputs.owner }}/${{ steps.meta.outputs.repo }}:latest \
+            --push \
+            .
+
+      - name: Docker summary
+        run: |
+          echo "### 🐳 Docker Images Published" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Version:** ${{ steps.meta.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Images:**" >> $GITHUB_STEP_SUMMARY
+          echo "- \`ghcr.io/${{ steps.meta.outputs.owner }}/${{ steps.meta.outputs.repo }}:${{ steps.meta.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`ghcr.io/${{ steps.meta.outputs.owner }}/${{ steps.meta.outputs.repo }}:latest\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Quick test:**" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+          echo "docker run --rm ghcr.io/${{ steps.meta.outputs.owner }}/${{ steps.meta.outputs.repo }}:${{ steps.meta.outputs.version }} \\" >> $GITHUB_STEP_SUMMARY
+          echo "  /app/build/bench/thread_pool_benchmark 2 2 tasks 1000" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+
+  # 创建 GitHub Release
+  create-release:
+    name: Create GitHub Release
+    needs: [create-version, get-tag-info, build-and-push-docker]
+    runs-on: ubuntu-latest
+    if: always() && needs.build-and-push-docker.result == 'success'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set release info
+        id: release_info
+        run: |
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            tag_name="${{ needs.create-version.outputs.new_tag }}"
+            changelog="${{ needs.create-version.outputs.changelog }}"
+            is_manual="true"
+            custom_notes="${{ github.event.inputs.release_notes }}"
+          else
+            tag_name="${{ needs.get-tag-info.outputs.tag_name }}"
+            changelog="${{ needs.get-tag-info.outputs.changelog }}"
+            is_manual="false"
+            custom_notes=""
+          fi
+          
+          echo "tag_name=$tag_name" >> $GITHUB_OUTPUT
+          echo "changelog<<EOF" >> $GITHUB_OUTPUT
+          echo "$changelog" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+          echo "is_manual=$is_manual" >> $GITHUB_OUTPUT
+          echo "custom_notes<<EOF" >> $GITHUB_OUTPUT
+          echo "$custom_notes" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build libgtest-dev nlohmann-json3-dev libspdlog-dev
+
+      - name: Build Release artifacts
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build build --parallel
+          
+          # 创建发布包
+          mkdir -p release/{lib,include,config,bin}
+          cp build/libthreadpool.a release/lib/ 2>/dev/null || true
+          cp -r include/* release/include/
+          cp -r config/* release/config/
+          cp build/bench/thread_pool_benchmark release/bin/ 2>/dev/null || true
+          cp README.md LICENSE release/ 2>/dev/null || true
+          
+          cd release
+          tar -czf ../threadpool-linux-x86_64.tar.gz *
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.release_info.outputs.tag_name }}
+          name: Release ${{ steps.release_info.outputs.tag_name }}
+          body: |
+            ## 🚀 Release ${{ steps.release_info.outputs.tag_name }}
+            
+            ${{ steps.release_info.outputs.custom_notes }}
+            
+            ### 📦 Docker Images
+            
+            ```bash
+            # Pull the latest release
+            docker pull ghcr.io/kahanat800/cpp-mpmc-threadpool:${{ steps.release_info.outputs.tag_name }}
+            
+            # Or use latest tag
+            docker pull ghcr.io/kahanat800/cpp-mpmc-threadpool:latest
+            ```
+            
+            ### 🧪 Quick Test
+            
+            ```bash
+            docker run --rm ghcr.io/kahanat800/cpp-mpmc-threadpool:${{ steps.release_info.outputs.tag_name }} \
+              /app/build/bench/thread_pool_benchmark 2 2 tasks 1000
+            ```
+            
+            ### 📝 Changelog
+            
+            ${{ steps.release_info.outputs.changelog }}
+            
+            ### 📊 Performance
+            
+            Expected performance: 2.3M+ tasks/s throughput, 73-156ns average latency.
+            
+            See the [README](https://github.com/KahanaT800/CPP-MPMC-ThreadPool#performance-benchmarks-) for detailed benchmark results.
+          files: threadpool-linux-x86_64.tar.gz
+          draft: false
+          prerelease: ${{ steps.release_info.outputs.is_manual == 'true' }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Release summary
+        run: |
+          echo "### 🎉 Release Created Successfully!" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Tag:** ${{ steps.release_info.outputs.tag_name }}" >> $GITHUB_OUTPUT
+          echo "**Type:** ${{ steps.release_info.outputs.is_manual == 'true' && 'Manual' || 'Tag-triggered' }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "[🔗 View Release](https://github.com/${{ github.repository }}/releases/tag/${{ steps.release_info.outputs.tag_name }})" >> $GITHUB_STEP_SUMMARY

@@ -1,0 +1,85 @@
+# IDE 和编辑器
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# 构建目录
+build/
+build-ci/
+build-sanitizers/
+build-*/
+cmake-build-*/
+out/
+Debug/
+Release/
+x64/
+x86/
+
+# CMake 生成的文件
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+CTestTestfile.cmake
+CTestCostData.txt
+.ninja_deps
+.ninja_log
+*.cmake
+!CMakeLists.txt
+
+# 编译输出
+*.o
+*.obj
+*.exe
+*.out
+*.app
+*.dll
+*.so
+*.dylib
+*.a
+*.lib
+
+# 调试文件
+*.pdb
+*.ilk
+*.exp
+
+# 临时文件
+*.tmp
+*.temp
+*.log
+*.tlog
+
+# 依赖管理
+vcpkg_installed/
+vcpkg_scripts/
+conan/
+conanfile.txt.lock
+
+# 测试相关
+test_results/
+coverage/
+*.gcov
+*.gcda
+*.gcno
+Testing/
+
+# 文档生成
+docs/_build/
+docs/html/
+docs/latex/
+
+# 包管理
+node_modules/
+package-lock.json
+yarn.lock
+
+# 其他
+*.bak
+*.backup
+*.orig
+*.rej

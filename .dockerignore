@@ -1,0 +1,37 @@
+# Git
+.git
+.gitmodules
+.gitignore
+
+# CMake build artifacts
+build/
+build-*/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+CTestTestfile.cmake
+Makefile
+Testing/
+
+# Local logs and temp
+logs/
+*.log
+*.tlog
+*.tmp
+*.swp
+
+# IDE/editor
+.vscode/
+.idea/
+*.code-workspace
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Release artifacts
+*.tar.gz
+*.zip
+
+# Exclude CI configs from context if not needed (kept by default)
+# .github/

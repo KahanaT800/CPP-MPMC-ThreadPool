@@ -105,3 +105,44 @@ jobs:
 
       - name: Test (ASan/UBSan)
         run: ctest --test-dir build-sanitizers --output-on-failure --no-tests=error
+
+  docker-build-test:
+    name: Docker build and test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker image (build stage, skip tests at build time)
+        run: |
+          docker buildx build \
+            --load \
+            --cache-from type=gha \
+            --cache-to type=gha,mode=max \
+            -t threadpool:build \
+            --target build \
+            --build-arg RUN_TESTS=OFF \
+            .
+
+      - name: Run tests inside build image
+        run: |
+          docker run --rm threadpool:build \
+            ctest --test-dir /app/build --output-on-failure --no-tests=error
+
+      - name: Build Docker image (runtime)
+        run: |
+          docker buildx build \
+            --load \
+            --cache-from type=gha \
+            --cache-to type=gha,mode=max \
+            -t threadpool:runtime \
+            .
+
+      - name: Runtime smoke (quick benchmark)
+        run: |
+          docker run --rm threadpool:runtime \
+            /app/build/bench/thread_pool_benchmark --config /app/config/benchmark_config.json 2 1 time | head -n 40

@@ -192,3 +192,61 @@ jobs:
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  docker-images:
+    name: Build and push Docker images (GHCR)
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU (for multi-arch)
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Derive image metadata
+        id: meta
+        run: |
+          owner="${GITHUB_REPOSITORY_OWNER}"
+          repo_name="${GITHUB_REPOSITORY##*/}"
+          owner_lc=$(echo "$owner" | tr '[:upper:]' '[:lower:]')
+          repo_lc=$(echo "$repo_name" | tr '[:upper:]' '[:lower:]')
+          echo "owner_lc=$owner_lc" >> $GITHUB_OUTPUT
+          echo "repo_lc=$repo_lc" >> $GITHUB_OUTPUT
+          echo "version=${GITHUB_REF_NAME}" >> $GITHUB_OUTPUT
+
+      - name: Build and push runtime image (amd64)
+        run: |
+          docker buildx build \
+            --platform linux/amd64 \
+            --target runtime \
+            --cache-from type=gha \
+            --cache-to type=gha,mode=max \
+            -t ghcr.io/${{ steps.meta.outputs.owner_lc }}/${{ steps.meta.outputs.repo_lc }}:${{ steps.meta.outputs.version }} \
+            -t ghcr.io/${{ steps.meta.outputs.owner_lc }}/${{ steps.meta.outputs.repo_lc }}:latest \
+            --push \
+            .
+
+      # Optional: enable multi-arch by uncommenting below (slower)
+      # - name: Build and push runtime image (multi-arch)
+      #   if: false
+      #   run: |
+      #     docker buildx build \
+      #       --platform linux/amd64,linux/arm64 \
+      #       --target runtime \
+      #       --cache-from type=gha \
+      #       --cache-to type=gha,mode=max \
+      #       -t ghcr.io/${{ steps.meta.outputs.owner_lc }}/${{ steps.meta.outputs.repo_lc }}:${{ steps.meta.outputs.version }} \
+      #       -t ghcr.io/${{ steps.meta.outputs.owner_lc }}/${{ steps.meta.outputs.repo_lc }}:latest \
+      #       --push \
+      #       .

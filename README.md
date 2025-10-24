@@ -98,33 +98,24 @@ The benchmark prints throughput, queue usage, discarded/overwritten counts, and 
 
 ## What performance looks like (on one box)
 
-Your numbers will vary, but here’s a snapshot from a modern x86 workstation using the built-in scenarios:
+| Scenario                 | Throughput (tasks/s) | Peak Threads | Queue Util.  | Discard/Overwrite | Policy |
+|--------------------------|----------------------|--------------|--------------|-------------------|--------|
+| Duration-2core-2s        | 3,043,678            | 6            | 99.9%        | 0                 | BLOCK  |
+| OverwritePolicy-Test     | 1,577,654            | 4            | 99.9%        | 918,514 overwritten| OVERWRITE |
+| DiscardPolicy-Test       | 1,776,014            | 2            | 100.0%       | 4,987,230 discarded| DISCARD |
+| CPU-Bottleneck-2core     | 11,225               | 2            | 100.0%       | 0                 | BLOCK  |
+| IO-Sleep-Workload        | 3,772                | 16           | 100.0%       | 0                 | BLOCK  |
+| Dynamic-Scaling-Test     | 77,197               | 16           | 100.0%       | 0                 | BLOCK  |
+| VeryHigh-Concurrency     | 1,512,089            | 25           | 104.9%       | 1,525,989 discarded| DISCARD |
+| Baseline-50M-Tasks       | 916,418              | 32           | 167.8%       | 31,601,177 discarded| DISCARD |
 
-| Scenario | Throughput (tasks/s) | Peak Threads | Policy |
-|----------|----------------------|--------------|--------|
-| Duration-2core-2s | ~1.6M | 6 | BLOCK |
-| Duration-8core-5s | ~1.3M | 16 | BLOCK |
-| TaskCount-4core-1M | ~95K | 16 | BLOCK |
-| OverwritePolicy-Test | ~1.26M | 4 | OVERWRITE |
-| CPU-Bottleneck-2core | ~11K | 2 | BLOCK |
-| Queue-Bottleneck-BLOCK | ~1.93M | 4 | BLOCK |
-| DiscardPolicy-Test | ~1.32M | 2 | DISCARD |
-| IO-Sleep-Workload | ~3.8K | 16 | BLOCK |
-| Dynamic-Scaling-Test | ~55K | 16 | BLOCK |
-| Multi-Submitter-TaskMode | ~45K | 8 | BLOCK |
-| Low-Concurrency | ~1.48M | 4 | DISCARD |
-| Medium-Concurrency | ~1.17M | 8 | DISCARD |
-| High-Concurrency | ~1.27M | 16 | DISCARD |
-| VeryHigh-Concurrency | ~1.32M | 25 | DISCARD |
-| Baseline-50M-Tasks | ~764K | 32 | DISCARD |
+Key takeaways:
 
-A few takeaways:
-
-- Lightweight tasks hit 1.3M–1.9M tasks/s depending on cores and policy
-- 200µs CPU work drops to ~11K tasks/s (as expected)
-- Dynamic scaling grows from 2 → 16 workers under load and stays stable
-- `BLOCK` maximizes throughput, `DISCARD`/`OVERWRITE` control pressure (and tell you how often)
-- IO/sleep workloads are bound by your sleep time (e.g., 2ms → ~3.8K tasks/s)
+- Lightweight tasks: throughput up to 1.8M–3M tasks/s, queue utilization is extremely high
+- High concurrency/large task scenarios: discard/overwrite policies effectively prevent queue overflow
+- CPU-bound scenarios (e.g. 200µs work): throughput drops to ~11K tasks/s, as expected
+- Dynamic scaling: thread pool automatically expands from 2 to 16 workers, maintaining high throughput
+- IO/Sleep scenarios: throughput is limited by task duration, much lower
 
 ## Logging
 

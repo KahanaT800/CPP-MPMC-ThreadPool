@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.10)
-project(threadpool VERSION 0.1.0 LANGUAGES CXX)
+project(threadpool VERSION 1.0.0 LANGUAGES CXX)
 
 # Lib
 add_library(threadpool STATIC

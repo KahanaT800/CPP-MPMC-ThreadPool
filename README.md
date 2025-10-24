@@ -48,6 +48,39 @@ Want to override defaults? Pass args after `--`:
 
 Scenarios live in `config/benchmark_config.json`. See below for how they’re structured.
 
+## Docker
+
+Build multi-stage images (build and runtime) and run tests/benchmarks inside containers.
+
+- Build the development/build image (includes compilers, CMake, and test run):
+
+```bash
+docker build -t threadpool:build --target build .
+```
+
+- Build the minimal runtime image (only binaries + configs):
+
+```bash
+docker build -t threadpool:runtime .
+```
+
+- Run tests (from the build image):
+
+```bash
+docker run --rm -it threadpool:build ctest --test-dir /app/build --output-on-failure
+```
+
+- Run benchmarks (from the runtime image):
+
+```bash
+docker run --rm -it threadpool:runtime /app/scripts/run_benchmark.sh
+```
+
+Optional build args:
+
+- `--build-arg BUILD_TYPE=Debug` (default: Release)
+- `--build-arg RUN_TESTS=OFF` to skip running tests during the build stage
+
 ## Using the pool
 
 ```cpp

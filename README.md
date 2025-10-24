@@ -70,10 +70,10 @@ docker build -t threadpool:runtime .
 docker run --rm -it threadpool:build ctest --test-dir /app/build --output-on-failure
 ```
 
-- Run benchmarks (from the runtime image):
+- Run benchmarks (from the runtime image; use the prebuilt binary):
 
 ```bash
-docker run --rm -it threadpool:runtime /app/scripts/run_benchmark.sh
+docker run --rm -it threadpool:runtime /app/build/bench/thread_pool_benchmark --config /app/config/benchmark_config.json 2 2 time
 ```
 
 Optional build args:

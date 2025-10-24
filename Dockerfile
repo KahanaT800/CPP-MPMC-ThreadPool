@@ -50,10 +50,10 @@ ENV DEBIAN_FRONTEND=noninteractive
 
 # Only runtime needs spdlog shared (if any) and basic libs; json is header-only
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends \
-       libspdlog1 \
-       ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
+     && apt-get install -y --no-install-recommends \
+         libspdlog1.12 \
+         ca-certificates \
+     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
